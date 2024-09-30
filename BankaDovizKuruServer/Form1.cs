@@ -26,9 +26,11 @@ namespace BankaDovizKuruServer
         private DataGridView dataGridAllBanks;
 
         public static int SendPort = 15099;
+        public static string SendIPAddress = "10.1.1.54";
         public static int GetTimerInterval;
 
         private Timer SendTimer;
+        
         private List<FxRateModel> fxRateIsBankasi;
         private List<FxRateModel> fxRateDenizbank;
         private List<FxRateModel> fxRateYapiKredi;
@@ -44,8 +46,9 @@ namespace BankaDovizKuruServer
         FrmSettings frmSettings = new FrmSettings( SendPort, GetTimerInterval);
         private Timer dataFetchTimer;
         private List<FxRateModel> previousRates = new List<FxRateModel>();
+        private List<FxRateModel> allRates = new List<FxRateModel>();
 
-        private TcpSender tcpSender;
+        public static TcpSender tcpSender;
 
         public Form1()
         {
@@ -59,10 +62,10 @@ namespace BankaDovizKuruServer
         {
 
             dataGridIsBankasi = CreateDataGridView();
-            tabPage2.Controls.Add(dataGridIsBankasi);  // Ýþ Bankasý Grid ekleniyor
+            tabPage2.Controls.Add(dataGridIsBankasi);  
 
             dataGridDeniz = CreateDataGridView();
-            tabPage3.Controls.Add(dataGridDeniz);  // DenizBank Grid ekleniyor
+            tabPage3.Controls.Add(dataGridDeniz);  
 
             dataGridYapiKredi = CreateDataGridView();
             tabPage4.Controls.Add(dataGridYapiKredi);
@@ -74,11 +77,11 @@ namespace BankaDovizKuruServer
             tabPage6.Controls.Add(dataGridQnbFinans);
 
 
-            dataGridAllBanks = CreateDataGridView();
-            tabPage1.Controls.Add(dataGridAllBanks);  // Tüm Bankalar Grid ekleniyor
+            dataGridAllBanks = CreateDataGridView(true);
+            tabPage1.Controls.Add(dataGridAllBanks);  
         }
 
-        private DataGridView CreateDataGridView()
+        private DataGridView CreateDataGridView(bool includeCheckBoxColumn = false)
         {
             try
             {
@@ -88,12 +91,25 @@ namespace BankaDovizKuruServer
                     ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize
                 };
 
-                dataGridView.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "IsActive" });
-                dataGridView.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Kod", DataPropertyName = "Code" });
+                if (includeCheckBoxColumn)
+                {
+                    DataGridViewCheckBoxColumn sendColumn = new DataGridViewCheckBoxColumn();
+                    sendColumn.HeaderText = "Gönder";
+                    sendColumn.Name = "SendColumn";
+                    sendColumn.TrueValue = true;
+                    sendColumn.FalseValue = false;
+                    sendColumn.ValueType = typeof(bool);
+                    sendColumn.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+                    sendColumn.Width = 60;
+                    dataGridView.Columns.Add(sendColumn); 
+                }
+
+               // dataGridView.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "IsActive", DataPropertyName ="IsActive" });
+                dataGridView.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Kod", Name = "Kod", DataPropertyName = "Code" });
                 dataGridView.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Taným", DataPropertyName = "Description" });
                 dataGridView.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Alýþ", DataPropertyName = "Buy" });
                 dataGridView.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Satýþ", DataPropertyName = "Sell" });
-                dataGridView.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Banka Adý" , DataPropertyName ="Text" });
+                dataGridView.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Banka Adý" , DataPropertyName = "BankName" });
                 dataGridView.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Son Güncelleme" });
 
 
@@ -106,11 +122,60 @@ namespace BankaDovizKuruServer
             }
         }
 
+        private Dictionary<string, bool> checkboxStates = new Dictionary<string, bool>();
+
+        private Task SaveCheckboxStates(DataGridView dataGridView)
+        {
+            return Task.Run(() =>
+            {
+                foreach (DataGridViewRow row in dataGridView.Rows)
+                {
+                    
+                    if (row.Cells["Kod"]?.Value != null)
+                    {
+                        string code = row.Cells["Kod"].Value.ToString();
+
+                    
+                        //if (row.Cells["SendColumn"] != null && row.Cells["SendColumn"].Value != null)
+                        if (row.Cells["SendColumn"]?.Value != null)
+                        {
+                            bool isChecked = Convert.ToBoolean(row.Cells["SendColumn"].Value);
+
+                            if (checkboxStates.ContainsKey(code))
+                                checkboxStates[code] = isChecked;
+                            else
+                                checkboxStates.Add(code, isChecked);
+                        }
+                    }
+                }
+            });
+        }
+
+        private Task RestoreCheckboxStates(DataGridView dataGridView)
+        {
+            return Task.Run(() =>
+            {
+                foreach (DataGridViewRow row in dataGridView.Rows)
+                {
+                    if (row.Cells["Kod"]?.Value != null)
+                    {
+                        string code = row.Cells["Kod"].Value.ToString();
+                        if (checkboxStates.ContainsKey(code))
+                        {
+                            row.Cells["SendColumn"].Value = checkboxStates[code];
+                        }
+                    }
+                }
+            });
+        }
+
+
         private void Form1_Load(object sender, EventArgs e)
         {
            
             LoadSettingsFromJson();
             UpdateTimers();
+           // StartTcpListener();
 
             string isBankasiUrl = "https://www.isbank.com.tr/_vti_bin/DV.Isbank/PriceAndRate/PriceAndRateService.svc/GetFxRates?Lang=tr&fxRateType=IB&date=2024-8-29&time=1724936436985";
             string denizbankUrl = "https://www.denizbank.com/api/marketdata/exchanges";
@@ -120,107 +185,121 @@ namespace BankaDovizKuruServer
 
             FetchBankData(isBankasiUrl, denizbankUrl, yapiKrediUrl, akbankUrl, qnbFinansBankUrl);
 
-            tcpSender = new TcpSender("127.0.0.1", 15099); 
+            tcpSender = new TcpSender(SendIPAddress, SendPort);
             if (!tcpSender.Connect())
             {
                 MessageBox.Show("TCP baðlantýsý kurulamadý!");
             }
+            //UpdateConnectionStatus();
+
         }
 
         private void FetchBankData(string isBankasiUrl, string denizbankUrl, string yapiKrediUrl, string akbankUrl, string qnbFinansBankUrl)
         {
-            // Ýþ Bankasý verilerini çek
-            if (isBankEnabled)
-            {
-                var isBankasiRates = GetIsBankasiRates(isBankasiUrl);
-                if (isBankasiRates != null)
-                {
-                    fxRateIsBankasi = ConvertIsBankasiRatesToFxRateModel(isBankasiRates.Data);
-                    Logger.Log($"Ýþ Bankasý verisi: {fxRateIsBankasi.Count} adet veri.");
-                    richTextBoxAciklama.AppendText($"{DateTime.Now}: Ýþ Bankasý verisi: {fxRateIsBankasi.Count} adet veri.\n");
-                    ApplyCustomCodes(fxRateIsBankasi, "ISBNK");
-                    DisplayFxRatesInGrid(fxRateIsBankasi, dataGridIsBankasi);
-                }
-            }
-            // DenizBank verilerini çek
-            if (denizBankEnabled)
-            {
-                var denizBankRates = GetDenizBankRates(denizbankUrl);
-                fxRateDenizbank = denizBankRates != null ? ConvertDenizBankRatesToFxRateModel(denizBankRates) : new List<FxRateModel>();
-                Logger.Log($"DenizBank verisi: {fxRateDenizbank.Count} adet veri.");
-                richTextBoxAciklama.AppendText($"{DateTime.Now}: DenizBank verisi: {fxRateDenizbank.Count} adet veri.\n");
-                ApplyCustomCodes(fxRateDenizbank, "DNZ");
-                DisplayFxRatesInGrid(fxRateDenizbank, dataGridDeniz);
-            }
 
-            // Yapý Kredi verilerini çek
-            if (yapiKrediEnabled)
+            try
             {
-                var yapiKrediRates = GetYapiKrediRates(yapiKrediUrl);
-                if (yapiKrediRates?.d != null)
-                {
-                    fxRateYapiKredi = ConvertYapiKrediRatesToFxRateModel(yapiKrediRates.d);
-                    Logger.Log($"Yapý Kredi verisi: {fxRateYapiKredi.Count} adet veri.");
-                    richTextBoxAciklama.AppendText($"{DateTime.Now}: YapiKredi verisi: {fxRateYapiKredi.Count} adet veri.\n");
-                    ApplyCustomCodes(fxRateYapiKredi, "YKB");
-                    DisplayFxRatesInGrid(fxRateYapiKredi, dataGridYapiKredi);
-                }
-                else
-                {
-                    Logger.Log("Yapý Kredi verisi  null döndü.");
-                    richTextBoxAciklama.AppendText($"{DateTime.Now}: Yapý Kredi verisi null döndü. \n");
-                }
-            }
+                allRates.Clear();
 
-            // Akbank verilerini çek
-            if (akbankEnabled)
+                // Ýþ Bankasý verilerini çek
+                if (isBankEnabled)
+                {
+                    var isBankasiRates = GetIsBankasiRates(isBankasiUrl);
+                    if (isBankasiRates != null)
+                    {
+                        fxRateIsBankasi = ConvertIsBankasiRatesToFxRateModel(isBankasiRates.Data);
+                        Logger.Log($"Ýþ Bankasý verisi: {fxRateIsBankasi.Count} adet veri.");
+                        richTextBoxAciklama.AppendText($"{DateTime.Now}: Ýþ Bankasý verisi: {fxRateIsBankasi.Count} adet veri.\n");
+                        ApplyCustomCodes(fxRateIsBankasi, "ISBNK");
+                        DisplayFxRatesInGrid(fxRateIsBankasi, dataGridIsBankasi);
+                    }
+                }
+                // DenizBank verilerini çek
+                if (denizBankEnabled)
+                {
+                    var denizBankRates = GetDenizBankRates(denizbankUrl);
+                    fxRateDenizbank = denizBankRates != null ? ConvertDenizBankRatesToFxRateModel(denizBankRates) : new List<FxRateModel>();
+                    Logger.Log($"DenizBank verisi: {fxRateDenizbank.Count} adet veri.");
+                    richTextBoxAciklama.AppendText($"{DateTime.Now}: DenizBank verisi: {fxRateDenizbank.Count} adet veri.\n");
+                    ApplyCustomCodes(fxRateDenizbank, "DNZ");
+                    DisplayFxRatesInGrid(fxRateDenizbank, dataGridDeniz);
+                }
+
+                // Yapý Kredi verilerini çek
+                if (yapiKrediEnabled)
+                {
+                    var yapiKrediRates = GetYapiKrediRates(yapiKrediUrl);
+                    if (yapiKrediRates?.d != null)
+                    {
+                        fxRateYapiKredi = ConvertYapiKrediRatesToFxRateModel(yapiKrediRates.d);
+                        Logger.Log($"Yapý Kredi verisi: {fxRateYapiKredi.Count} adet veri.");
+                        richTextBoxAciklama.AppendText($"{DateTime.Now}: YapiKredi verisi: {fxRateYapiKredi.Count} adet veri.\n");
+                        ApplyCustomCodes(fxRateYapiKredi, "YKB");
+                        DisplayFxRatesInGrid(fxRateYapiKredi, dataGridYapiKredi);
+                    }
+                    else
+                    {
+                        Logger.Log("Yapý Kredi verisi  null döndü.");
+                        richTextBoxAciklama.AppendText($"{DateTime.Now}: Yapý Kredi verisi null döndü. \n");
+                    }
+                }
+
+                // Akbank verilerini çek
+                if (akbankEnabled)
+                {
+                    var akbankRates = GetAkbankRates(akbankUrl);
+                    if (akbankRates?.cur != null)
+                    {
+                        fxRateAkbank = ConvertAkbankRatesToFxRateModel(akbankRates.cur);
+                        Logger.Log($"Akbank verisi: {fxRateAkbank.Count} adet veri.");
+                        richTextBoxAciklama.AppendText($"{DateTime.Now}: Akbank verisi: {fxRateAkbank.Count} adet veri.\n");
+                        ApplyCustomCodes(fxRateAkbank, "AKB");
+                        DisplayFxRatesInGrid(fxRateAkbank, dataGridAkbank);
+                    }
+                    else
+                    {
+                        Logger.Log("Akbank verisi null döndü.");
+                        richTextBoxAciklama.AppendText($"{DateTime.Now}: Akbank verisi null döndü. \n");
+                    }
+                }
+
+                // QNB Finansbank verilerini çek
+                if (qnbFinanasEnabled)
+                {
+                    var qnbFinansBankRates = GetQnbFinansBankRates(qnbFinansBankUrl);
+                    if (qnbFinansBankRates != null)
+                    {
+                        fxRateQnbFinansBank = ConvertQnbFinansRatesToFxRateModel(qnbFinansBankRates);
+                        Logger.Log($"QNB Finansbank verisi: {fxRateQnbFinansBank.Count} adet veri.");
+                        richTextBoxAciklama.AppendText($"{DateTime.Now}: QnbFinansBank verisi: {fxRateQnbFinansBank.Count} adet veri.\n");
+                        ApplyCustomCodes(fxRateQnbFinansBank, "QNB");
+                        DisplayFxRatesInGrid(fxRateQnbFinansBank, dataGridQnbFinans);
+                    }
+                    else
+                    {
+                        Logger.Log("QNB Finansbank verisi boþ veya null döndü.");
+                        richTextBoxAciklama.AppendText($"{DateTime.Now}: QNB FinansBank verisi null döndü.\n");
+                    }
+                }
+
+                // Tüm bankalardan gelen verileri tek bir listeye ekle
+                //var allRates = new List<FxRateModel>();
+
+                if (fxRateIsBankasi != null) allRates.AddRange(fxRateIsBankasi);
+                if (fxRateDenizbank != null) allRates.AddRange(fxRateDenizbank);
+                if (fxRateYapiKredi != null) allRates.AddRange(fxRateYapiKredi);
+                if (fxRateAkbank != null) allRates.AddRange(fxRateAkbank);
+                if (fxRateQnbFinansBank != null) allRates.AddRange(fxRateQnbFinansBank);
+
+                Logger.Log($"Toplam {allRates.Count} adet veri tüm bankalardan toplandý.");
+                richTextBoxAciklama.AppendText($"{DateTime.Now} : {allRates.Count} adet veri tüm bankalardan toplandý.\n");
+                DisplayFxRatesInGrid(allRates, dataGridAllBanks);
+            }
+            catch (Exception ex)
             {
-                var akbankRates = GetAkbankRates(akbankUrl);
-                if (akbankRates?.cur != null)
-                {
-                    fxRateAkbank = ConvertAkbankRatesToFxRateModel(akbankRates.cur);
-                    Logger.Log($"Akbank verisi: {fxRateAkbank.Count} adet veri.");
-                    richTextBoxAciklama.AppendText($"{DateTime.Now}: Akbank verisi: {fxRateAkbank.Count} adet veri.\n");
-                    ApplyCustomCodes(fxRateAkbank, "AKB");
-                    DisplayFxRatesInGrid(fxRateAkbank, dataGridAkbank);
-                }
-                else
-                {
-                    Logger.Log("Akbank verisi null döndü.");
-                    richTextBoxAciklama.AppendText($"{DateTime.Now}: Akbank verisi null döndü. \n");
-                }
+                Logger.Log($"Veri çekme iþlemi sýrasýnda hata: {ex.Message}");
+                richTextBoxAciklama.AppendText($"{DateTime.Now}: Veri çekme iþlemi sýrasýnda bir hata oluþtu.\n");
             }
-
-            // QNB Finansbank verilerini çek
-            if (qnbFinanasEnabled)
-            {
-                var qnbFinansBankRates = GetQnbFinansBankRates(qnbFinansBankUrl);
-                if (qnbFinansBankRates != null)
-                {
-                    fxRateQnbFinansBank = ConvertQnbFinansRatesToFxRateModel(qnbFinansBankRates);
-                    Logger.Log($"QNB Finansbank verisi: {fxRateQnbFinansBank.Count} adet veri.");
-                    richTextBoxAciklama.AppendText($"{DateTime.Now}: QnbFinansBank verisi: {fxRateQnbFinansBank.Count} adet veri.\n");
-                    ApplyCustomCodes(fxRateQnbFinansBank, "QNB");
-                    DisplayFxRatesInGrid(fxRateQnbFinansBank, dataGridQnbFinans);
-                }
-                else
-                {
-                    Logger.Log("QNB Finansbank verisi boþ veya null döndü.");
-                    richTextBoxAciklama.AppendText($"{DateTime.Now}: QNB FinansBank verisi null döndü.\n");
-                }
-            }
-
-            // Tüm bankalardan gelen verileri tek bir listeye ekle
-            var allRates = new List<FxRateModel>();
-            if (fxRateIsBankasi != null) allRates.AddRange(fxRateIsBankasi);
-            if (fxRateDenizbank != null) allRates.AddRange(fxRateDenizbank);
-            if (fxRateYapiKredi != null) allRates.AddRange(fxRateYapiKredi);
-            if (fxRateAkbank != null) allRates.AddRange(fxRateAkbank);
-            if (fxRateQnbFinansBank != null) allRates.AddRange(fxRateQnbFinansBank);
-
-            Logger.Log($"Toplam {allRates.Count} adet veri tüm bankalardan toplandý.");
-            richTextBoxAciklama.AppendText($"{DateTime.Now} : {allRates.Count} adet veri tüm bankalardan toplandý.\n");
-            DisplayFxRatesInGrid(allRates, dataGridAllBanks);
 
         }
 
@@ -251,8 +330,8 @@ namespace BankaDovizKuruServer
             {
                 return rates.Select(rate => new FxRateModel
                 {
-                    Code = rate.Code,  // Denizbank'ta "Name" döviz kodunu temsil eder
-                    Description = rate.Name,  // Açýklama boþ býrakýlabilir
+                    Code = rate.Code, 
+                    Description = rate.Name,  
                     Buy = rate.BuyingPrice,
                     Sell = rate.SellingPrice
                 }).ToList();
@@ -309,13 +388,12 @@ namespace BankaDovizKuruServer
                 { "ZAR", "Güney Afrika Randý" }
             };
 
-        Dictionary<string, string> BankName = new Dictionary<string, string>
+        Dictionary<string, string> bankNameMapping = new Dictionary<string, string>
             {
-                { "AKB", "AKBANK" },
-                { "ISBNK", "IS BANKASI" },
-                { "DNZ", "DENIZ BANK" },
-                { "QNB", "QNB FINANSBANK" }
-               
+                { "ISBNK", "ISBANK" },
+                { "DNZ", "DENIZBANK" },
+                { "QNB", "QNB FINANSBANK" },
+                { "AKB", "AKBANK" }
             };
 
         private List<FxRateModel> ConvertAkbankRatesToFxRateModel(List<AkbankKurModel> rates)
@@ -434,13 +512,37 @@ namespace BankaDovizKuruServer
                 dataGridView.Rows.Clear();
                 foreach (var rate in fxRates)
                 {
-                    dataGridView.Rows.Add("True", rate.Code, rate.Description, rate.Buy, rate.Sell, DateTime.Now.ToString("HH:mm:ss"));
+                    string bankPrefix = FindBankPrefix(rate.Code);  // Prefix'i dinamik olarak çýkar
+                    string bankName = bankNameMapping.ContainsKey(bankPrefix) ? bankNameMapping[bankPrefix] : "UNKNOWN";
+                    if (dataGridView.Columns.Contains("SendColumn"))
+                    {
+                        dataGridView.Rows.Add(true, rate.Code, rate.Description, rate.Buy, rate.Sell, bankName, DateTime.Now.ToString("HH:mm:ss"));
+                    }
+                    else
+                    {
+                        dataGridView.Rows.Add(true, rate.Code, rate.Description, rate.Buy, rate.Sell, bankName, DateTime.Now.ToString("HH:mm:ss"));
+                    }
                 }
             }
             catch (Exception ex)
             {
                 Logger.Log("Veriler tabloya eklenemedi: " + ex.Message);
             }
+        }
+
+        private string FindBankPrefix(string code)
+        {
+            // Prefix genellikle ilk 3 veya 4 karakter olabilir, buna göre kontrol et
+            if (code.StartsWith("ISBNK"))
+                return "ISBNK";
+            else if (code.StartsWith("DNZ"))
+                return "DNZ";
+            else if (code.StartsWith("QNB"))
+                return "QNB";
+            else if (code.StartsWith("AKB"))
+                return "AKB";
+
+            return "UNKNOWN";
         }
 
         // Ýþ Bankasý API verilerini çekme
@@ -573,15 +675,14 @@ namespace BankaDovizKuruServer
 
             using (FrmSettings frmSettings = new FrmSettings(SendPort, GetTimerInterval))
             {
-                // FrmSettings açýldýðýnda mevcut deðerleri gösterir
-                
                 frmSettings.textBxSendPort.Text = SendPort.ToString();
                 frmSettings.numericUpDownGetReqTimer.Value = GetTimerInterval;
 
+                frmSettings.UpdateConnectionStatus(tcpSender != null && tcpSender.IsConnected());
                 if (frmSettings.ShowDialog() == DialogResult.OK)
                 {
                     // Kullanýcý ayarlarý kaydettiðinde bu deðerleri günceller
-                    
+                    SendIPAddress = frmSettings.txtbxSenderIp.Text;
                     SendPort = int.Parse(frmSettings.textBxSendPort.Text);
                     GetTimerInterval = (int)frmSettings.numericUpDownGetReqTimer.Value;
 
@@ -591,9 +692,7 @@ namespace BankaDovizKuruServer
                     akbankEnabled = frmSettings.AkbankSelected;
                     qnbFinanasEnabled = frmSettings.QnbFinansSelected;
 
-
-                    // Deðerler güncellendiðinde gerekli iþlemleri burada yap
-                    UpdateTimers(); // Timerlarý güncelle ve yeniden baþlat
+                    UpdateTimers(); 
                     MessageBox.Show("Ayarlar baþarýyla güncellendi!");
                 }
             }
@@ -610,7 +709,7 @@ namespace BankaDovizKuruServer
                 }
 
                 dataFetchTimer = new Timer();
-                dataFetchTimer.Interval = GetTimerInterval * 60 * 1000;  // Dakikayý milisaniyeye çeviriyoruz
+                dataFetchTimer.Interval = GetTimerInterval * 60 * 1000;  // Dakikayý milisaniyeye çevrmek için
                 dataFetchTimer.Tick += DataFetchTimer_Tick;
                 dataFetchTimer.Start();
             }
@@ -619,14 +718,21 @@ namespace BankaDovizKuruServer
 
         private async void DataFetchTimer_Tick(object sender, EventArgs e)
         {
-            await FetchAndCompareDataAsync(); 
+            richTextBoxAciklama.AppendText($"{DateTime.Now}: Veriler otomatik olarak güncelleniyor...\n");
+
+            await SaveCheckboxStates(dataGridAllBanks);  
+            await FetchAndCompareDataAsync();  
+            await RestoreCheckboxStates(dataGridAllBanks);  
+
+            richTextBoxAciklama.AppendText($"{DateTime.Now}: Veriler baþarýyla güncellendi.\n");
+
         }
 
         private async Task FetchAndCompareDataAsync()
         {
             try
             {
-                // Yeni verileri çek
+               
                 var newRates = new List<FxRateModel>();
 
                 if (isBankEnabled && fxRateIsBankasi != null)
@@ -654,7 +760,7 @@ namespace BankaDovizKuruServer
                     newRates.AddRange(fxRateQnbFinansBank);
                 }
 
-                // Yeni ve önceki verileri karþýlaþtýr
+                
                 var updatedRates = CompareRates(previousRates, newRates);
 
                 if (updatedRates.Any())
@@ -665,7 +771,6 @@ namespace BankaDovizKuruServer
                 // Son çekilen verileri sakla
                 previousRates = newRates;
 
-                // GridView'i güncelle
                 DisplayFxRatesInGrid(newRates, dataGridAllBanks);
             }
             catch (Exception ex)
@@ -678,15 +783,27 @@ namespace BankaDovizKuruServer
         {
             try
             {
-                foreach (var rate in updatedRates)
+                int gonderilenVeriSayisi = 0;
+                foreach (DataGridViewRow row in dataGridAllBanks.Rows)
                 {
-                    string data = FormatData(rate);
-                    await tcpSender.SendDataAsync(data); 
+                    bool isSendChecked = Convert.ToBoolean(row.Cells["SendColumn"].Value);
+                    if (isSendChecked)
+                    {
+                        FxRateModel rate = row.DataBoundItem as FxRateModel;
+                        if (rate != null && updatedRates.Contains(rate))
+                        {
+                            string data = FormatData(rate);
+                            await tcpSender.SendDataAsync(data); 
+                            gonderilenVeriSayisi++;
+                        }
+                    }
                 }
+                richTextBoxAciklama.AppendText($"{DateTime.Now}: {gonderilenVeriSayisi} adet veri deðeri deðiþtiði için güncellendi.Güncellenmiþ döviz kuru TCP üzerinden baþarýyla gönderildi.\n");
             }
             catch (Exception ex)
             {
                 Logger.Log($"SendUpdatedRates metodunda hata var : {ex.Message}");
+                richTextBoxAciklama.AppendText($"{DateTime.Now}: TCP üzerinden güncellenmiþ veri gönderimi sýrasýnda hata oluþtu.\n");
             }
         }
 
@@ -711,25 +828,36 @@ namespace BankaDovizKuruServer
         {
             try
             {
-
+                
                 dataGridView.Rows.Clear();
 
-
-                var filteredRates = fxRateIsBankasi
-                    .Concat(fxRateDenizbank)
-                    .Where(rate => rate.Code.Contains(searchTerm) || rate.Description.Contains(searchTerm))
-                    .ToList();
-
-                if (!filteredRates.Any())
+                if (allRates == null || !allRates.Any())
                 {
-                    MessageBox.Show("Arama teriminize uygun sonuç bulunamadý.");
-
+                    MessageBox.Show("Veri bulunamadý.");
                     return;
                 }
 
+               
+                var filteredRates = allRates
+                    .Where(rate => rate.Code != null && rate.Description != null)
+                    .Where(rate => rate.Code.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
+                                   rate.Description.Contains(searchTerm, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                
+                if (!filteredRates.Any())
+                {
+                    MessageBox.Show("Arama teriminize uygun sonuç bulunamadý.");
+                    return;
+                }
+
+                
                 foreach (var rate in filteredRates)
                 {
-                    dataGridView.Rows.Add("True", rate.Code, rate.Description, rate.Buy, rate.Sell);
+                    string bankPrefix = FindBankPrefix(rate.Code);
+                    string bankName = bankNameMapping.ContainsKey(bankPrefix) ? bankNameMapping[bankPrefix] : "UNKNOWN";
+
+                    dataGridView.Rows.Add(true, rate.Code, rate.Description, rate.Buy, rate.Sell, bankName, DateTime.Now.ToString("HH:mm:ss"));
                 }
             }
             catch (Exception ex)
@@ -738,27 +866,26 @@ namespace BankaDovizKuruServer
             }
         }
 
-        private void txtSearch_KeyDown(object sender, KeyEventArgs e)
+        private async void txtSearch_KeyDown(object sender, KeyEventArgs e)
         {
-
             if (e.KeyCode == Keys.Enter)
             {
                 string searchTerm = txtSearch.Text.Trim().ToUpper();
 
+                await SaveCheckboxStates(dataGridAllBanks);
+
                 if (string.IsNullOrEmpty(searchTerm))
                 {
-                    MessageBox.Show("Lütfen bir arama terimi girin.");
-                    return;
+                    DisplayFxRatesInGrid(allRates, dataGridAllBanks);
+                }
+                else
+                {
+                    FilterFxRatesInGrid(dataGridAllBanks, searchTerm);
                 }
 
-                // Arama iþlemini baþlat
-                FilterFxRatesInGrid(dataGridAllBanks, searchTerm);
-                FilterFxRatesInGrid(dataGridIsBankasi, searchTerm);
-                FilterFxRatesInGrid(dataGridDeniz, searchTerm);
-                FilterFxRatesInGrid(dataGridYapiKredi, searchTerm);
-                FilterFxRatesInGrid(dataGridAkbank, searchTerm);
-                FilterFxRatesInGrid(dataGridQnbFinans, searchTerm);
-                e.SuppressKeyPress = true; // Enter tuþunun varsayýlan iþlevini devre dýþý býrak
+                await RestoreCheckboxStates(dataGridAllBanks);
+
+                e.SuppressKeyPress = true; 
             }
         }
 
@@ -807,7 +934,6 @@ namespace BankaDovizKuruServer
         {
             try
             {
-                // Tüm bankalardan alýnan döviz verilerini gönder
                 List<FxRateModel> allRates = new List<FxRateModel>();
 
                 if (fxRateIsBankasi != null) allRates.AddRange(fxRateIsBankasi);
@@ -828,28 +954,41 @@ namespace BankaDovizKuruServer
         {
             try
             {
-                foreach (var rate in allRates)
+                int gonderilenVeriSayisi = 0;
+                foreach (DataGridViewRow row in dataGridAllBanks.Rows)
                 {
-                    string data = FormatData(rate);
-                    await tcpSender.SendDataAsync(data); 
+                    bool isSelected = Convert.ToBoolean(row.Cells["SendColumn"].Value);
+                    if (!isSelected) continue;  
+
+                    string code = row.Cells["Kod"].Value.ToString();
+                    FxRateModel rate = allRates.FirstOrDefault(r => r.Code == code);
+                    if (rate != null)
+                    {
+                        string data = FormatData(rate);
+                        await tcpSender.SendDataAsync(data);  
+                        gonderilenVeriSayisi++;
+                    }
                 }
+                richTextBoxAciklama.AppendText($"{DateTime.Now}: Tüm verileri göndermek istediniz, {gonderilenVeriSayisi} döviz kuru TCP üzerinden baþarýyla gönderildi.\n");
             }
             catch (Exception ex)
             {
                 Logger.Log($"SendAllRates metodunda hata var: {ex.Message}");
+                richTextBoxAciklama.AppendText($"{DateTime.Now}: TCP üzerinden veri gönderimi sýrasýnda hata oluþtu.\n");
             }
         }
 
         private string FormatData(FxRateModel rate)
         {
-            string data = "?66001;" + rate.Code + ";C" + rate.Description + ";B" + rate.Buy + ";A" + rate.Sell + ";" + (Char)3;
+            string data = "?66001;" + rate.Code + ";C" + rate.Buy + ";B" + rate.Buy + ";A" + rate.Sell + ";" + (Char)3;
             data += (Char)8 + "j" + (Char)8 + "w" + (Char)8;
             return data;
         }
 
         private void Form1_FormClosing(object sender, FormClosingEventArgs e)
         {
-           // tcpSender.Close();
+            // tcpSender.Close();
+
         }
 
     }

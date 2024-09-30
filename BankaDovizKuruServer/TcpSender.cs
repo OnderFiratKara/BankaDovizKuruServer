@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Net;
 using System.Net.Sockets;
 using System.Text;
 
@@ -44,7 +45,7 @@ namespace BankaDovizKuruServer
                     return;
                 }
 
-                byte[] byteData = Encoding.ASCII.GetBytes(data);
+                byte[] byteData = Encoding.UTF8.GetBytes(data);
                 await stream.WriteAsync(byteData, 0, byteData.Length); // Asenkron gönderim
                 Logger.Log($"Veri başarıyla gönderildi: {data}");
             }
@@ -67,5 +68,42 @@ namespace BankaDovizKuruServer
         //        Logger.Log($"Bağlantı kapatılırken hata oluştu: {ex.Message}");
         //    }
         //}
+
+        public void Disconnect()
+        {
+            try
+            {
+                if (stream != null)
+                {
+                    stream.Close();
+                }
+                if (client != null)
+                {
+                    client.Close();
+                    client.Dispose();
+                }
+                Logger.Log("TCP bağlantısı başarıyla kapatıldı.");
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"TCP bağlantısı kapatılırken hata oluştu: {ex.Message}");
+            }
+        }
+
+        public bool IsConnected()
+        {
+            try
+            {
+                return client != null && client.Connected;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
     }
+
+    
+
 }

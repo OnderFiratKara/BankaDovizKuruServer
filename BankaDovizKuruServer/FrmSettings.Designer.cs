@@ -41,6 +41,8 @@
             checkBoxZiraat = new CheckBox();
             checkBoxVakif = new CheckBox();
             checkBoxHalkBank = new CheckBox();
+            txtbxSenderIp = new TextBox();
+            label1 = new Label();
             ((System.ComponentModel.ISupportInitialize)numericUpDownGetReqTimer).BeginInit();
             SuspendLayout();
             // 
@@ -166,6 +168,22 @@
             checkBoxHalkBank.Text = "Halkbank Verilerini Gönder";
             checkBoxHalkBank.UseVisualStyleBackColor = true;
             // 
+            // txtbxSenderIp
+            // 
+            txtbxSenderIp.Location = new Point(141, 25);
+            txtbxSenderIp.Name = "txtbxSenderIp";
+            txtbxSenderIp.Size = new Size(85, 23);
+            txtbxSenderIp.TabIndex = 0;
+            // 
+            // label1
+            // 
+            label1.AutoSize = true;
+            label1.Location = new Point(15, 28);
+            label1.Name = "label1";
+            label1.Size = new Size(79, 15);
+            label1.TabIndex = 1;
+            label1.Text = "Gönderim IP :";
+            // 
             // FrmSettings
             // 
             AutoScaleDimensions = new SizeF(7F, 15F);
@@ -182,6 +200,8 @@
             Controls.Add(btnSaveSettings);
             Controls.Add(numericUpDownGetReqTimer);
             Controls.Add(label2);
+            Controls.Add(label1);
+            Controls.Add(txtbxSenderIp);
             Controls.Add(lblSendPort);
             Controls.Add(textBxSendPort);
             Name = "FrmSettings";
@@ -205,5 +225,7 @@
         private CheckBox checkBoxZiraat;
         private CheckBox checkBoxVakif;
         private CheckBox checkBoxHalkBank;
+        public TextBox txtbxSenderIp;
+        public Label label1;
     }
 }

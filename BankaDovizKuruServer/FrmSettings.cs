@@ -5,6 +5,7 @@ using System.ComponentModel;
 using System.Data;
 using System.Drawing;
 using System.Linq;
+using System.Net;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -39,14 +40,42 @@ namespace BankaDovizKuruServer
         {
             SaveSettingsToJson();
 
-            Form1.SendPort = int.Parse(textBxSendPort.Text);
+            string ipAddress = txtbxSenderIp.Text.Trim();
+            int port = int.Parse(textBxSendPort.Text);
+
+            
+            if (!IPAddress.TryParse(ipAddress, out IPAddress _))
+            {
+                MessageBox.Show("Geçerli bir IP adresi girin.");
+                return;
+            }
+
+            Form1.SendIPAddress = ipAddress;
+            Form1.SendPort = port;
             Form1.GetTimerInterval = (int)numericUpDownGetReqTimer.Value;
+
+            
 
             IsBankSelected = checkBoxIsBank.Checked;
             DenizBankSelected = checkBoxDenizBank.Checked;
             YapiKrediSelected = checkBoxYapiKredi.Checked;
             AkbankSelected = checkBoxAkbank.Checked;
             QnbFinansSelected = checkBoxQnbFinansBank.Checked;
+
+            Form1.tcpSender.Disconnect();
+            Form1.tcpSender = new TcpSender(Form1.SendIPAddress, Form1.SendPort);
+
+            if (Form1.tcpSender.Connect())
+            {
+                MessageBox.Show("Yeni ayarlarla TCP bağlantısı başarıyla kuruldu.");
+            }
+            else
+            {
+                MessageBox.Show("Yeni ayarlarla TCP bağlantısı başarısız oldu.");
+            }
+
+            // Yeni bağlantı durumuna göre renkleri güncelle
+            UpdateConnectionStatus(Form1.tcpSender.IsConnected());
 
             MessageBox.Show("Ayarlar başarıyla kaydedildi!", "Bilgilendirme", MessageBoxButtons.OK, MessageBoxIcon.Information);
             //SaveSettingsToJson();
@@ -65,6 +94,7 @@ namespace BankaDovizKuruServer
                 { "AkbankEnabled", checkBoxAkbank.Checked },
                 { "QnbFinansEnabled", checkBoxQnbFinansBank.Checked },
                 { "SendPort", int.Parse(textBxSendPort.Text) },
+                { "SendIPAddress", txtbxSenderIp.Text },
                 { "GetTimerInterval", (int)numericUpDownGetReqTimer.Value }
 
             };
@@ -92,6 +122,7 @@ namespace BankaDovizKuruServer
                 checkBoxAkbank.Checked = Convert.ToBoolean(settings["AkbankEnabled"]);
                 checkBoxQnbFinansBank.Checked = Convert.ToBoolean(settings["QnbFinansEnabled"]);
                 textBxSendPort.Text = settings["SendPort"].ToString();
+                txtbxSenderIp.Text = settings["SendIPAddress"].ToString();
                 numericUpDownGetReqTimer.Value = Convert.ToDecimal(settings["GetTimerInterval"]);
                 
                 //MessageBox.Show($"IsBank: {settings["IsBankEnabled"]}, DenizBank: {settings["DenizBankEnabled"]}, YapiKredi: {settings["YapiKrediEnabled"]}, Akbank: {settings["AkbankEnabled"]}, QNB: {settings["QnbFinansEnabled"]}");
@@ -104,10 +135,26 @@ namespace BankaDovizKuruServer
                 checkBoxYapiKredi.Checked = true;
                 checkBoxAkbank.Checked = true;
                 checkBoxQnbFinansBank.Checked = true;
-                textBxSendPort.Text = "3545";
+                textBxSendPort.Text = "15099";
+                txtbxSenderIp.Text = "10.1.1.54";
                 numericUpDownGetReqTimer.Value = 5;
             }
         }
+
+        public void UpdateConnectionStatus(bool isConnected)
+        {
+            if (isConnected)
+            {
+                txtbxSenderIp.BackColor = Color.Green;
+                textBxSendPort.BackColor = Color.Green;
+            }
+            else
+            {
+                txtbxSenderIp.BackColor = Color.Red;
+                textBxSendPort.BackColor = Color.Red;
+            }
+        }
+
 
     }
 }

@@ -12,7 +12,9 @@ namespace BankaDovizKuruServer
         public string Code { get; set; }          
         public string Description { get; set; }   
         public decimal Buy { get; set; }          
-        public decimal Sell { get; set; }         
+        public decimal Sell { get; set; }
+
+        public string BankName { get; set; }
     }
 
     public class FxRateResponse
@@ -40,6 +42,7 @@ namespace BankaDovizKuruServer
         public string Name { get; set; }
         public decimal BuyingPrice { get; set; }
         public decimal SellingPrice { get; set; }
+        
     }
 
     public class DenizBankResponse
